@@ -12,3 +12,4 @@ colorama
 psutil
 requests
 keyboard
+Pillow
