@@ -1,6 +1,6 @@
 ﻿"""
-core/logger.py - Session logging for Minecraft Jarvis.
-Writes timestamped entries to console (with color) and optionally to a log file.
+core/logger.py - Session logging for Jarvis.
+Logs go to %APPDATA%\Jarvis\logs\ to avoid Windows Defender Controlled Folder Access.
 """
 import logging
 import os
@@ -12,9 +12,12 @@ init(autoreset=True)
 _logger = None
 _config = {}
 
+def _default_log_dir() -> str:
+    """Returns %APPDATA%\Jarvis\logs — always writable by Python on Windows."""
+    return os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "Jarvis", "logs")
+
 
 def setup(config: dict):
-    """Initialize the logger. Call this once at startup."""
     global _logger, _config
     _config = config
 
@@ -22,21 +25,26 @@ def setup(config: dict):
     _logger.setLevel(logging.DEBUG)
     _logger.handlers.clear()
 
+    # Console handler
     ch = logging.StreamHandler()
     ch.setLevel(logging.DEBUG)
     ch.setFormatter(_ColorFormatter())
     _logger.addHandler(ch)
 
+    # File handler
     if config.get("log_to_file", True):
-        log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), config.get("log_dir", "logs"))
-        os.makedirs(log_dir, exist_ok=True)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        log_file = os.path.join(log_dir, f"session_{timestamp}.log")
-        fh = logging.FileHandler(log_file, encoding="utf-8")
-        fh.setLevel(logging.DEBUG)
-        fh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
-        _logger.addHandler(fh)
-        _logger.info(f"Session log: {log_file}")
+        log_dir = config.get("log_dir", "") or _default_log_dir()
+        try:
+            os.makedirs(log_dir, exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            log_file = os.path.join(log_dir, f"session_{timestamp}.log")
+            fh = logging.FileHandler(log_file, encoding="utf-8")
+            fh.setLevel(logging.DEBUG)
+            fh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+            _logger.addHandler(fh)
+            _logger.info(f"Session log: {log_file}")
+        except Exception as e:
+            _logger.warning(f"File logging disabled: {e}")
 
     return _logger
 
@@ -60,5 +68,4 @@ class _ColorFormatter(logging.Formatter):
         color = self.COLORS.get(record.levelno, "")
         ts = datetime.now().strftime("%H:%M:%S")
         prefix = f"{Fore.WHITE}[{ts}]{Style.RESET_ALL} {color}"
-        msg = record.getMessage()
-        return f"{prefix}{msg}{Style.RESET_ALL}"
+        return f"{prefix}{record.getMessage()}{Style.RESET_ALL}"

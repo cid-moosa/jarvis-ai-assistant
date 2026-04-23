@@ -35,8 +35,10 @@ launcher_wait_seconds: 30
 weather_city: "Colombo"
 
 # --- Logging ---
+# Uses %APPDATA%\Jarvis\logs to avoid Windows Defender Controlled Folder Access
 log_to_file: true
-log_dir: "logs"
+log_dir: ""
 
 # --- Data directory ---
-data_dir: "data"
+# Uses %APPDATA%\Jarvis\data
+data_dir: ""

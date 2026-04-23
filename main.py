@@ -25,8 +25,11 @@ BANNER = f"""
 
 
 def load_config(path: str = "config.yaml") -> dict:
+    # Resolve relative to this script, not the launch CWD
+    if not os.path.isabs(path):
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), path)
     if not os.path.exists(path):
-        print(f"{Fore.YELLOW}[!] config.yaml not found. Using defaults.{Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}[!] config.yaml not found at {path}. Using defaults.{Style.RESET_ALL}")
         return {}
     with open(path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f) or {}

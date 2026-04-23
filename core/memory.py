@@ -1,8 +1,6 @@
 ﻿"""
-core/memory.py
-==============
-Lightweight local state store. Persists to data/memory.json.
-Zero dependencies beyond stdlib.
+core/memory.py - Lightweight local state store.
+Data goes to %APPDATA%\Jarvis\data\ to avoid Windows Defender Controlled Folder Access.
 """
 import json
 import os
@@ -11,10 +9,14 @@ from datetime import datetime
 _store: dict = {}
 _path: str   = ""
 
+def _default_data_dir() -> str:
+    """Returns %APPDATA%\Jarvis\data — always writable by Python on Windows."""
+    return os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "Jarvis", "data")
+
 
 def setup(config: dict):
     global _store, _path
-    data_dir = config.get("data_dir", "data")
+    data_dir = config.get("data_dir", "") or _default_data_dir()
     os.makedirs(data_dir, exist_ok=True)
     _path = os.path.join(data_dir, "memory.json")
     if os.path.exists(_path):
