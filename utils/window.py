@@ -1,15 +1,16 @@
 ﻿"""
 utils/window.py
 ===============
-Window manager for Jarvis — fast, reliable, overlap-safe.
+Window manager for Jarvis.
 
-Key design decisions:
-  - pyautogui MINIMUM_DURATION = 0: mouse moves are INSTANT (no animation delay)
-  - Blue button finder: scans the launcher window for the actual blue Start button
-    by pixel color — does NOT rely on fixed offsets that break on different resolutions
-  - Win32 SetForegroundWindow: guarantees focus, unlike pygetwindow activate()
-  - Popup detector: waits for the error popup specifically before pressing Enter
-  - Game process watcher: terminates Jarvis once javaw.exe is confirmed stable
+Fixes vs previous version:
+  - _safe_rect(hwnd): uses ctypes.GetWindowRect for FRESH coordinates every call.
+    Never uses win.left/win.top/etc. from a possibly-stale pygetwindow object.
+  - _find_blue_button: uses pyautogui.screenshot(region=...) which goes through
+    GDI correctly — no invalid window handle (error 1400).
+  - run_launcher_sequence: waits for launcher to be STABLE (present for 2 checks)
+    before proceeding, then waits a longer boot time (5s) for full UI load.
+  - All Win32 calls wrapped with IsWindow() guard before use.
 """
 import time
 import ctypes
@@ -20,23 +21,42 @@ import pyautogui
 import pygetwindow as gw
 from core import logger
 
-# ── Speed config ──────────────────────────────────────────────────────────────
-# Remove all mouse animation delays globally — instant movement
-pyautogui.MINIMUM_DURATION  = 0
-pyautogui.MINIMUM_SLEEP     = 0
-pyautogui.PAUSE             = 0.05   # tiny safety pause between calls
+# ── Speed config ───────────────────────────────────────────────────────────────
+pyautogui.MINIMUM_DURATION = 0
+pyautogui.MINIMUM_SLEEP    = 0
+pyautogui.PAUSE            = 0.04
 
 SW_RESTORE       = 9
 SPI_GETWORKAREA  = 48
 
+_user32 = ctypes.windll.user32
 
-# ── Screen helpers ─────────────────────────────────────────────────────────────
+
+# ── Win32 helpers ──────────────────────────────────────────────────────────────
+
+def _is_valid_hwnd(hwnd: int) -> bool:
+    """Return True if hwnd is still a live window."""
+    return bool(_user32.IsWindow(hwnd))
+
+
+def _safe_rect(hwnd: int):
+    """
+    Get (left, top, right, bottom) screen coordinates for hwnd via GetWindowRect.
+    Always fresh — never stale pygetwindow cached values.
+    Returns None if hwnd is invalid.
+    """
+    if not _is_valid_hwnd(hwnd):
+        return None
+    rect = ctypes.wintypes.RECT()
+    if _user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+        return rect.left, rect.top, rect.right, rect.bottom
+    return None
+
 
 def _work_area():
-    """Return (width, height) of primary monitor minus taskbar."""
     try:
         rect = ctypes.wintypes.RECT()
-        ctypes.windll.user32.SystemParametersInfoW(SPI_GETWORKAREA, 0, ctypes.byref(rect), 0)
+        _user32.SystemParametersInfoW(SPI_GETWORKAREA, 0, ctypes.byref(rect), 0)
         return rect.right - rect.left, rect.bottom - rect.top
     except Exception:
         return pyautogui.size()
@@ -53,17 +73,28 @@ def find_window(keyword: str):
     )
 
 
-def wait_for_window(keyword: str, timeout: int = 30):
-    """Poll until a window matching keyword appears. Returns window or None."""
+def wait_for_window(keyword: str, timeout: int = 40):
+    """
+    Poll until a window matching keyword appears AND has been stable
+    for 2 consecutive 0.5s checks (avoids grabbing the window too early
+    when the handle is still being registered by the OS).
+    """
     log = logger.get()
-    log.info(f"Waiting for window '{keyword}' (up to {timeout}s)...")
-    deadline = time.time() + timeout
+    log.info(f"Waiting for '{keyword}' (up to {timeout}s)...")
+    deadline  = time.time() + timeout
+    stable    = 0
+
     while time.time() < deadline:
         w = find_window(keyword)
-        if w:
-            log.info(f"Found: '{w.title}'")
-            return w
-        time.sleep(0.4)
+        if w and _is_valid_hwnd(w._hWnd):
+            stable += 1
+            if stable >= 2:
+                log.info(f"Window stable: '{w.title}'")
+                return w
+        else:
+            stable = 0
+        time.sleep(0.5)
+
     log.warning(f"Timed out waiting for '{keyword}'")
     return None
 
@@ -71,171 +102,165 @@ def wait_for_window(keyword: str, timeout: int = 30):
 # ── Focus ──────────────────────────────────────────────────────────────────────
 
 def force_focus(win) -> bool:
-    """
-    Guarantee a window is in the foreground using Win32.
-    pygetwindow.activate() silently fails when another app holds focus lock.
-    """
+    """Bring window to foreground using Win32. Guards against stale handles."""
     if win is None:
         return False
-    try:
+    hwnd = win._hWnd
+    if not _is_valid_hwnd(hwnd):
+        logger.get().warning("force_focus: stale HWND — refreshing window...")
+        win = find_window(win.title.split()[0])
+        if win is None:
+            return False
         hwnd = win._hWnd
-        if win.isMinimized:
-            ctypes.windll.user32.ShowWindow(hwnd, SW_RESTORE)
-            time.sleep(0.2)
-        ctypes.windll.user32.SetForegroundWindow(hwnd)
-        time.sleep(0.25)
+
+    try:
+        _user32.ShowWindow(hwnd, SW_RESTORE)
+        time.sleep(0.15)
+        _user32.SetForegroundWindow(hwnd)
+        time.sleep(0.2)
         return True
     except Exception as e:
-        logger.get().warning(f"force_focus: {e}")
-        try:
-            win.activate()
-            time.sleep(0.2)
-        except Exception:
-            pass
+        logger.get().warning(f"force_focus Win32 error: {e}")
         return False
 
 
 # ── Blue button finder ─────────────────────────────────────────────────────────
 
-def _find_blue_button(win, scan_rows: int = 120) -> tuple:
+def _find_blue_button(win, x_off: int, y_off: int, scan_rows: int = 140) -> tuple:
     """
-    Scan the bottom-left region of the launcher window for the blue Start button.
+    Scan the bottom-left region of the launcher for the blue Start button.
+    Uses pyautogui.screenshot(region=...) — safe, no HWND involved.
 
-    SKLauncher's Start button is a distinct blue: R < 100, G < 170, B > 160.
-    We scan the bottom `scan_rows` pixels of the window, left half only.
-
-    Returns (click_x, click_y) of the button centre, or (None, None) if not found.
+    Returns (screen_x, screen_y) of button centre, or falls back to offsets.
     """
     log = logger.get()
-    try:
-        from PIL import ImageGrab
-        # Capture just the bottom-left region of the launcher
-        left   = win.left
-        top    = max(win.top, win.top + win.height - scan_rows)
-        right  = win.left + win.width // 2   # left half only
-        bottom = win.top + win.height
 
-        img = ImageGrab.grab(bbox=(left, top, right, bottom))
+    # Get FRESH window rect via GetWindowRect (not cached pygetwindow values)
+    r = _safe_rect(win._hWnd)
+    if r is None:
+        log.warning("Button scan: invalid HWND — using offset fallback.")
+        return win.left + x_off, win.top + win.height - y_off
+
+    wl, wt, wr, wb = r
+    win_w = wr - wl
+    win_h = wb - wt
+
+    # Scan region: bottom `scan_rows` pixels, left 55% of window
+    scan_left   = wl
+    scan_top    = wb - scan_rows
+    scan_width  = int(win_w * 0.55)
+    scan_height = scan_rows
+
+    try:
+        img = pyautogui.screenshot(region=(scan_left, scan_top, scan_width, scan_height))
         pixels = img.load()
         w, h   = img.size
 
         blue_xs, blue_ys = [], []
         for y in range(h):
             for x in range(w):
-                r, g, b = pixels[x, y][:3]
-                # Blue button heuristic: clearly blue, not white/grey
-                if b > 150 and r < 120 and b - r > 60 and b - g > 30:
+                r_px, g_px, b_px = pixels[x, y][:3]
+                # Blue button: clearly blue, not white/grey/black
+                if b_px > 140 and r_px < 130 and (b_px - r_px) > 50 and (b_px - g_px) > 20:
                     blue_xs.append(x)
                     blue_ys.append(y)
 
-        if len(blue_xs) > 40:   # enough blue pixels to be a button, not a border
-            cx = left + int(sum(blue_xs) / len(blue_xs))
-            cy = top  + int(sum(blue_ys) / len(blue_ys))
-            log.info(f"Blue button found at ({cx}, {cy}) from {len(blue_xs)} px")
+        if len(blue_xs) > 60:
+            cx = scan_left + int(sum(blue_xs) / len(blue_xs))
+            cy = scan_top  + int(sum(blue_ys) / len(blue_ys))
+            log.info(f"Blue button found: ({cx}, {cy}) from {len(blue_xs)} px")
             return cx, cy
         else:
-            log.warning(f"Blue button scan: only {len(blue_xs)} blue pixels — falling back to offset")
-            return None, None
+            log.info(f"Blue scan: {len(blue_xs)} px (< 60) — using offset fallback")
+            return wl + x_off, wb - y_off
+
     except Exception as e:
-        log.warning(f"Blue button scan error: {e}")
-        return None, None
+        log.warning(f"Blue scan error: {e} — using offset fallback")
+        return wl + x_off, wb - y_off
 
 
-# ── Launcher sequence ──────────────────────────────────────────────────────────
+# ── Main launcher sequence ─────────────────────────────────────────────────────
 
 def run_launcher_sequence(config: dict) -> bool:
     """
-    Full SKLauncher start sequence. Steps:
-      1. Wait for the launcher window to appear
-      2. Force-focus it exclusively
-      3. Wait briefly for internal loading (splash/update check)
-      4. Press Enter to dismiss any error/update popup
-      5. Re-focus (popup may have shifted focus away)
-      6. Find the blue Start button by pixel scan, click it instantly
-      7. Verify the click landed on something blue (retry up to 3x)
-
-    Returns True once the click was executed.
+    Full SKLauncher boot sequence:
+      1.  Wait for window to appear AND be stable (2 consecutive valid-handle checks)
+      2.  Wait 5s for the launcher UI + any auto-update check to fully load
+      3.  Force-focus via Win32
+      4.  Press Enter to dismiss any error/update popup
+      5.  Wait 0.8s — the popup closes, launcher redraws
+      6.  Force-focus again (popup dialog eats focus)
+      7.  Pixel-scan for blue Start button; click instantly (duration=0)
+      8.  Verify game started (up to 3 retries)
     """
     log = logger.get()
-    launcher_name = config.get("launcher_name", "SKLauncher")
-    wait_sec      = config.get("launcher_wait_seconds", 30)
-    x_off         = config.get("launcher_play_btn_x_offset", 140)
+    launcher_name = config.get("launcher_name",                  "SKLauncher")
+    wait_sec      = config.get("launcher_wait_seconds",           40)
+    x_off         = config.get("launcher_play_btn_x_offset",      140)
     y_off         = config.get("launcher_play_btn_y_from_bottom", 65)
 
-    # ── 1. Wait for window ──
+    # ── 1. Wait for stable window ──
     win = wait_for_window(launcher_name, timeout=wait_sec)
     if win is None:
         log.error("SKLauncher never appeared.")
         return False
 
-    # ── 2. Wait for launcher to load its UI fully ──
-    log.info("Launcher appeared — waiting for UI to load...")
-    time.sleep(3)
+    # ── 2. Wait for full UI load (splash + update check) ──
+    log.info("Launcher appeared — waiting 5s for full UI load...")
+    time.sleep(5)
 
-    # ── 3. Force focus before any keypress ──
-    win = find_window(launcher_name) or win   # refresh geometry
-    force_focus(win)
-
-    # ── 4. Dismiss error/update popup with Enter ──
-    log.info("Pressing Enter to dismiss popup (if any)...")
-    pyautogui.press("enter")
-    time.sleep(0.5)
-
-    # ── 5. Re-focus (popup dialog may have eaten the focus) ──
+    # ── 3. Force focus ──
     win = find_window(launcher_name) or win
     force_focus(win)
     time.sleep(0.3)
 
-    # ── 6. Find + click the blue Start button (up to 3 retries) ──
+    # ── 4. Dismiss error/update popup ──
+    log.info("Sending Enter to dismiss popup...")
+    pyautogui.press("enter")
+    time.sleep(0.8)    # wait for popup to close + launcher to redraw
+
+    # ── 5. Re-focus after popup closed ──
+    win = find_window(launcher_name) or win
+    force_focus(win)
+    time.sleep(0.4)
+
+    # ── 6. Find + click Start button (3 retries) ──
+    import psutil
     for attempt in range(1, 4):
-        win = find_window(launcher_name) or win
+        # Always refresh window object to get valid handle
+        fresh = find_window(launcher_name)
+        if fresh:
+            win = fresh
 
-        # Try pixel-scan first (most reliable)
-        cx, cy = _find_blue_button(win)
+        cx, cy = _find_blue_button(win, x_off, y_off)
+        log.info(f"Attempt {attempt}: clicking Start at ({cx}, {cy})")
 
-        if cx is None:
-            # Fallback: use config offsets
-            cx = win.left + x_off
-            cy = win.top + win.height - y_off
-            log.info(f"Attempt {attempt}: fallback offset click at ({cx}, {cy})")
-        else:
-            log.info(f"Attempt {attempt}: pixel-scan click at ({cx}, {cy})")
-
-        # Instant mouse move + click (duration=0)
+        force_focus(win)
+        time.sleep(0.1)
         pyautogui.moveTo(cx, cy, duration=0)
         pyautogui.click()
-        time.sleep(0.4)
+        time.sleep(0.5)
 
-        # Verify: check if the launcher window is still present
-        # If game started launching, launcher might close or minimise
-        post_win = find_window(launcher_name)
-        if post_win is None:
-            log.info("Launcher closed after click — game is launching!")
-            return True
+        # ── Verify: did the game start? ──
+        mc = any(p.name().lower() in ("javaw.exe", "minecraft.exe")
+                 for p in psutil.process_iter(["name"]))
+        launcher_gone = find_window(launcher_name) is None
 
-        # If launcher still open, check if Minecraft process appeared
-        import psutil
-        mc_running = any(
-            p.name().lower() in ("javaw.exe", "minecraft.exe")
-            for p in psutil.process_iter(["name"])
-        )
-        if mc_running:
-            log.info("Minecraft process detected — launch confirmed!")
+        if mc or launcher_gone:
+            log.info("Game launch confirmed!")
             return True
 
         if attempt < 3:
-            log.warning(f"Click attempt {attempt} did not start game. Retrying in 1s...")
-            force_focus(win)
-            time.sleep(1)
+            log.warning(f"Attempt {attempt} didn't start game — retrying in 1.5s...")
+            time.sleep(1.5)
 
-    log.error("All click attempts failed.")
+    log.error("All 3 click attempts failed.")
     return False
 
 
-# ── Window layout helpers ──────────────────────────────────────────────────────
+# ── Layout helpers ─────────────────────────────────────────────────────────────
 
 def tile_side_by_side(left_keyword: str, right_keyword: str):
-    """Position two windows side-by-side with zero overlap."""
     log = logger.get()
     sw, sh = _work_area()
     half = sw // 2
@@ -254,34 +279,38 @@ def tile_side_by_side(left_keyword: str, right_keyword: str):
 
 # ── Game watcher / self-terminate ─────────────────────────────────────────────
 
-def watch_and_terminate_when_game_starts(check_interval: float = 3.0, stable_checks: int = 3):
+def watch_and_terminate_when_game_starts(check_interval: float = 4.0, stable_checks: int = 3):
     """
-    Start a background daemon thread that monitors for javaw.exe.
-    Once Minecraft is confirmed running (stable for stable_checks * check_interval seconds),
-    Jarvis calls os._exit(0) to free all PC resources for the game.
+    Daemon thread: watches for javaw.exe. When Minecraft is confirmed stable
+    (running for stable_checks consecutive polls), Jarvis terminates via os._exit(0)
+    to free all resources for the game.
     """
     log = logger.get()
 
     def _watcher():
         import psutil
         stable = 0
-        log.info("Game watcher started — will self-terminate when Minecraft is stable.")
+        log.info("Game watcher running...")
         while True:
             time.sleep(check_interval)
-            running = any(
-                p.name().lower() in ("javaw.exe", "minecraft.exe")
-                for p in psutil.process_iter(["name"])
-            )
+            try:
+                running = any(
+                    p.name().lower() in ("javaw.exe", "minecraft.exe")
+                    for p in psutil.process_iter(["name"])
+                )
+            except Exception:
+                running = False
+
             if running:
                 stable += 1
-                log.info(f"Minecraft running ({stable}/{stable_checks} stability checks)...")
+                log.info(f"Minecraft stable check {stable}/{stable_checks}")
                 if stable >= stable_checks:
-                    log.info("Minecraft confirmed stable — Jarvis terminating to free resources.")
-                    time.sleep(1)
+                    log.info("Minecraft confirmed — Jarvis terminating.")
+                    time.sleep(0.5)
                     os._exit(0)
             else:
-                stable = 0   # reset if process disappears (crash / user quit before stable)
+                stable = 0
 
     t = threading.Thread(target=_watcher, daemon=True, name="GameWatcher")
     t.start()
-    logger.get().info("Game watcher active.")
+    log.info("Game watcher active.")
