@@ -1,0 +1,14 @@
+﻿pyaudio
+pyautogui
+edge-tts
+pygame
+SpeechRecognition
+pygetwindow
+comtypes
+pycaw
+rapidfuzz
+pyyaml
+colorama
+psutil
+requests
+keyboard

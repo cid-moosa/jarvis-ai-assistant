@@ -1,0 +1,42 @@
+﻿# ============================================================
+#  Jarvis Configuration
+# ============================================================
+
+# --- Identity ---
+name: "Jarvis"
+
+# --- TTS Voice ---
+voice: "en-US-ChristopherNeural"
+
+# --- Microphone ---
+mic_volume: 0.50
+
+# --- Clap Detection ---
+min_threshold: 5
+spike_multiplier: 4.0
+chunk_size: 1024
+sample_rate: 44100
+clap_gap_seconds: 0.30
+double_clap_window: 0.80
+
+# --- Voice Listening ---
+listen_timeout: 7.0
+phrase_time_limit: 6
+
+# --- Gaming (Minecraft section) ---
+minecraft_path: "%APPDATA%\\.minecraft"
+launcher_name: "SKLauncher"
+launcher_exe: "skl"
+launcher_play_btn_x_offset: 140
+launcher_play_btn_y_from_bottom: 65
+launcher_wait_seconds: 30
+
+# --- Weather (free, no API key needed) ---
+weather_city: "Colombo"
+
+# --- Logging ---
+log_to_file: true
+log_dir: "logs"
+
+# --- Data directory ---
+data_dir: "data"
