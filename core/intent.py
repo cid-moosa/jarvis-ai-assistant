@@ -1,17 +1,15 @@
-﻿"""
+"""
 core/intent.py
 ==============
-Fully LOCAL, zero-cost intent classifier.
-No LLM, no API, no internet required.
+Hybrid intent classifier: LOCAL-first (RapidFuzz 3-stage pipeline),
+then LLM fallback (Gemini) if no local skill scores >= 60.
 
-Uses a 3-stage pipeline:
-  1. Exact phrase match (fastest)
-  2. Token overlap scoring (handles word order variation)
-  3. RapidFuzz partial ratio (handles mispronunciation / typos)
-
-Each skill registers its own intent patterns via register().
+Existing logic (exact match, token overlap, fuzzy ratio, keyword bonus)
+is 100% preserved. The LLM layer only fires on a miss.
 """
 from __future__ import annotations
+import threading
+import warnings
 from dataclasses import dataclass, field
 from typing import Callable, List, Tuple
 from rapidfuzz import fuzz
@@ -31,6 +29,14 @@ class Skill:
     description: str                = ""
 
 _registry: List[Skill] = []
+_config: dict = {}
+_config_lock = threading.Lock()
+
+
+def setup(config: dict):
+    global _config
+    with _config_lock:
+        _config = config
 
 
 def register(skill: Skill):
@@ -85,6 +91,7 @@ def classify(text: str) -> Tuple[Skill | None, int, str]:
     Classify text into the best matching skill.
     Returns (skill, score, matched_phrase).
     Returns (None, 0, '') if no skill scores >= 60.
+    The caller should route (None, ...) to llm_fallback().
     """
     if not text.strip():
         return None, 0, ""
@@ -101,3 +108,77 @@ def classify(text: str) -> Tuple[Skill | None, int, str]:
         return skill, score, phrase
 
     return None, 0, ""
+
+
+def llm_fallback(text: str, config: dict | None = None) -> str:
+    """
+    Route an unmatched query to the Gemini generative AI API.
+    Streams response chunks into the WebSocket broadcast queue.
+    Returns the full response text (or an error string on failure).
+
+    Graceful degradation:
+      - Missing API key  -> returns instructions string without crashing.
+      - Network failure  -> returns error string without crashing.
+      - Library missing  -> returns error string without crashing.
+    """
+    from core import memory, logger as log_mod
+
+    cfg = config or {}
+    log = log_mod.get()
+
+    api_key = memory.get_api_key("gemini")
+    if not api_key:
+        msg = ("I don't have a Gemini API key configured yet. "
+               "Open the settings panel in the web interface to add one.")
+        log.warning("LLM fallback: no Gemini API key in memory.")
+        return msg
+
+    model_name = cfg.get("llm_model", "gemini-1.5-flash")
+
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=FutureWarning)
+            import google.generativeai as genai
+    except ImportError:
+        msg = "The google-generativeai package is not installed. Run: pip install google-generativeai"
+        log.error(msg)
+        return msg
+
+    try:
+        # Stream the response
+        response_chunks: List[str] = []
+        try:
+            from core import server as _srv
+            broadcast = _srv.broadcast
+        except Exception:
+            broadcast = None  # server not yet started -- stream silently
+
+        system_ctx = (
+            "You are Jarvis, a sharp and helpful AI assistant. "
+            "Give concise, direct answers. Avoid markdown in spoken responses."
+        )
+        full_prompt = f"{system_ctx}\n\nUser: {text}\nJarvis:"
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=FutureWarning)
+            genai.configure(api_key=api_key)
+            model_obj = genai.GenerativeModel(model_name)
+            response = model_obj.generate_content(full_prompt, stream=True)
+            for chunk in response:
+                chunk_text = getattr(chunk, "text", "") or ""
+                if chunk_text:
+                    response_chunks.append(chunk_text)
+                    if broadcast:
+                        try:
+                            broadcast({"event": "llm_chunk", "text": chunk_text})
+                        except Exception:
+                            pass
+
+        full_response = "".join(response_chunks).strip()
+        if not full_response:
+            full_response = "I wasn't able to generate a response. Please try again."
+        return full_response
+
+    except Exception as exc:
+        log.error(f"LLM fallback error: {exc}")
+        return f"I encountered an error reaching the AI: {exc}"

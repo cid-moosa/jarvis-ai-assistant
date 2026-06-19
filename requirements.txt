@@ -1,4 +1,4 @@
-﻿pyaudio
+pyaudio
 pyautogui
 edge-tts
 pygame
@@ -14,3 +14,7 @@ requests
 keyboard
 Pillow
 pyttsx3
+flask
+flask-sock
+opencv-python
+google-generativeai

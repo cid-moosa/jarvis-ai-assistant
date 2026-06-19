@@ -1,13 +1,16 @@
-﻿"""
+"""
 core/memory.py - Lightweight local state store.
 Data goes to %APPDATA%\Jarvis\data\ to avoid Windows Defender Controlled Folder Access.
+Includes secure API key storage via set_api_key / get_api_key.
 """
 import json
 import os
+import threading
 from datetime import datetime
 
 _store: dict = {}
 _path: str   = ""
+_lock = threading.Lock()
 
 def _default_data_dir() -> str:
     """Returns %APPDATA%\Jarvis\data — always writable by Python on Windows."""
@@ -35,25 +38,47 @@ def _save():
 
 
 def get(key: str, default=None):
-    return _store.get(key, default)
+    with _lock:
+        return _store.get(key, default)
 
 
 def set(key: str, value):
-    _store[key] = value
-    _save()
+    with _lock:
+        _store[key] = value
+        _save()
 
 
 def append(key: str, value):
-    lst = _store.get(key, [])
-    lst.append({"value": value, "ts": datetime.now().isoformat()})
-    _store[key] = lst
-    _save()
+    with _lock:
+        lst = _store.get(key, [])
+        lst.append({"value": value, "ts": datetime.now().isoformat()})
+        _store[key] = lst
+        _save()
 
 
 def delete(key: str):
-    _store.pop(key, None)
-    _save()
+    with _lock:
+        _store.pop(key, None)
+        _save()
 
 
 def all_data() -> dict:
-    return dict(_store)
+    with _lock:
+        return dict(_store)
+
+
+# ── Secure API Key helpers ─────────────────────────────────────────────────────
+
+def set_api_key(provider: str, key: str):
+    """Persist an API key for the given provider into memory.json under 'api_keys'."""
+    with _lock:
+        keys = _store.get("api_keys", {})
+        keys[provider.lower()] = key.strip()
+        _store["api_keys"] = keys
+        _save()
+
+
+def get_api_key(provider: str) -> str | None:
+    """Retrieve the stored API key for the given provider, or None if not set."""
+    with _lock:
+        return _store.get("api_keys", {}).get(provider.lower())

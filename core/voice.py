@@ -1,13 +1,15 @@
-﻿"""
+"""
 core/voice.py
 =============
 TTS speaker with two backends:
   1. Edge TTS (en-US-ChristopherNeural) — online, best quality
   2. pyttsx3 (Windows SAPI5) — 100% offline fallback
 
-speak() is BLOCKING by default now — this is critical for the launch sequence
-so announcements actually complete before the automation starts running.
+speak() is BLOCKING by default — critical for launch sequences.
 Use blocking=False only for non-critical background messages.
+
+WebSocket state events are pushed into core/server._broadcast_queue
+so the WebUI animates in sync with TTS state.
 """
 import asyncio
 import os
@@ -27,6 +29,17 @@ _sapi_engine = None   # pyttsx3 engine, initialised lazily
 def setup(config: dict):
     global _config
     _config = config
+
+
+# ── WebSocket broadcast helper (lazy import to avoid circular deps) ────────────
+
+def _ws_push(payload: dict):
+    """Push a state event to the WebSocket broadcast queue, if server is running."""
+    try:
+        from core import server as _srv
+        _srv.broadcast(payload)
+    except Exception:
+        pass  # Server not started yet or unavailable — degrade silently
 
 
 # ── pyttsx3 offline TTS (fallback) ────────────────────────────────────────────
@@ -92,12 +105,22 @@ def speak(text: str, blocking: bool = True):
                               Use this for all launch-sequence announcements.
     blocking=False:           fire-and-forget background thread.
                               Use only for non-critical status messages.
+
+    Side-effects:
+      - Pushes {"state": "SPEAKING", "text": "..."} to WebSocket before playback.
+      - Pushes {"state": "IDLE"} to WebSocket after playback completes.
     """
     log = logger.get()
     log.info(f"[Jarvis]: {text}")
     voice_name = _config.get("voice", "en-US-ChristopherNeural")
 
-    t = threading.Thread(target=_edge_speak, args=(text, voice_name), daemon=True)
+    _ws_push({"state": "SPEAKING", "text": text})
+
+    def _run():
+        _edge_speak(text, voice_name)
+        _ws_push({"state": "IDLE"})
+
+    t = threading.Thread(target=_run, daemon=True)
     t.start()
     if blocking:
         t.join()

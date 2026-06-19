@@ -42,3 +42,11 @@ log_dir: ""
 # --- Data directory ---
 # Uses %APPDATA%\Jarvis\data
 data_dir: ""
+# --- Web Server ---
+web_host: "127.0.0.1"
+web_port: 5000
+web_open_browser: true
+
+# --- LLM ---
+llm_provider: "gemini"
+llm_model: "gemini-1.5-flash"

@@ -1,0 +1,217 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>JARVIS — AI Command Interface</title>
+  <meta name="description" content="Jarvis hybrid AI assistant — real-time voice and text command dashboard with live system state visualization." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+  <!-- Background particle grid -->
+  <div class="bg-grid" aria-hidden="true"></div>
+  <div class="bg-vignette" aria-hidden="true"></div>
+
+  <!-- Top header bar -->
+  <header class="topbar" role="banner">
+    <div class="topbar-left">
+      <span class="topbar-logo">⬡ JARVIS</span>
+      <span class="topbar-version">v2.0 HYBRID</span>
+    </div>
+    <nav class="topbar-center" aria-label="Status indicators">
+      <div class="status-pill" id="pill-voice">
+        <span class="status-dot" id="dot-voice"></span>
+        <span>VOICE</span>
+      </div>
+      <div class="status-pill" id="pill-llm">
+        <span class="status-dot" id="dot-llm"></span>
+        <span>LLM</span>
+      </div>
+      <div class="status-pill" id="pill-ws">
+        <span class="status-dot" id="dot-ws"></span>
+        <span>SYNC</span>
+      </div>
+    </nav>
+    <div class="topbar-right">
+      <button class="btn-icon" id="btn-settings" aria-label="Open settings" title="Settings">⚙</button>
+      <div class="clock" id="clock" aria-live="polite"></div>
+    </div>
+  </header>
+
+  <!-- Main layout -->
+  <main class="dashboard" role="main">
+
+    <!-- Left column: Core visualizer -->
+    <section class="panel panel-core" aria-label="Jarvis core visualizer">
+      <div class="panel-header">
+        <span class="panel-title">CORE MATRIX</span>
+        <span class="state-badge" id="state-badge">IDLE</span>
+      </div>
+
+      <div class="core-container" id="core-container">
+        <canvas id="core-canvas" width="340" height="340" aria-label="Animated Jarvis core visual"></canvas>
+        <div class="core-center-text" id="core-label" aria-live="polite">STANDBY</div>
+      </div>
+
+      <!-- Skill radar -->
+      <div class="skill-grid" id="skill-grid" aria-label="Loaded skills">
+        <div class="skill-grid-title">LOADED SKILLS</div>
+        <div class="skill-chips" id="skill-chips"></div>
+      </div>
+    </section>
+
+    <!-- Center column: Command console -->
+    <section class="panel panel-console" aria-label="Command console">
+      <div class="panel-header">
+        <span class="panel-title">COMMAND CONSOLE</span>
+        <div class="console-controls">
+          <button class="btn-sm" id="btn-clear" aria-label="Clear console">CLEAR</button>
+          <button class="btn-sm" id="btn-export" aria-label="Export log">EXPORT</button>
+        </div>
+      </div>
+
+      <div class="console-output" id="console-output" role="log" aria-live="polite" aria-label="Session log"></div>
+
+      <!-- Input area -->
+      <div class="console-input-bar" role="search">
+        <span class="input-prompt">❯</span>
+        <input
+          type="text"
+          id="command-input"
+          class="command-input"
+          placeholder="Type a command or ask anything..."
+          autocomplete="off"
+          aria-label="Type your command here"
+          spellcheck="false"
+        />
+        <button class="btn-send" id="btn-send" aria-label="Send command">SEND</button>
+        <button class="btn-mic" id="btn-mic" aria-label="Voice input indicator" title="Use double-clap for voice">🎤</button>
+      </div>
+    </section>
+
+    <!-- Right column: Snapshot & Info -->
+    <section class="panel panel-side" aria-label="System panels">
+
+      <!-- Camera snapshot panel -->
+      <div class="sub-panel" id="snapshot-panel">
+        <div class="panel-header">
+          <span class="panel-title">VISION FEED</span>
+          <button class="btn-sm" id="btn-snapshot" aria-label="Trigger camera snapshot">SNAP</button>
+        </div>
+        <div class="snapshot-container" id="snapshot-container">
+          <div class="snapshot-placeholder" id="snapshot-placeholder">
+            <span class="snapshot-icon">⬡</span>
+            <span>No snapshot — say "take a snapshot"</span>
+          </div>
+          <img id="snapshot-img" src="" alt="Latest camera snapshot" style="display:none;" />
+        </div>
+        <div class="snapshot-caption" id="snapshot-caption"></div>
+      </div>
+
+      <!-- System stats -->
+      <div class="sub-panel" id="stats-panel">
+        <div class="panel-header">
+          <span class="panel-title">SESSION STATS</span>
+        </div>
+        <div class="stats-grid">
+          <div class="stat-item">
+            <span class="stat-label">COMMANDS</span>
+            <span class="stat-value" id="stat-commands">0</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">LLM CALLS</span>
+            <span class="stat-value" id="stat-llm">0</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">UPTIME</span>
+            <span class="stat-value" id="stat-uptime">00:00</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">MODE</span>
+            <span class="stat-value" id="stat-mode">HYBRID</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Settings Modal -->
+  <div class="modal-backdrop" id="modal-backdrop" role="dialog" aria-modal="true" aria-label="Settings" style="display:none;">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 class="modal-title">⚙ SYSTEM SETTINGS</h2>
+        <button class="modal-close" id="modal-close" aria-label="Close settings">✕</button>
+      </div>
+      <div class="modal-body">
+
+        <fieldset class="settings-group">
+          <legend class="settings-group-title">🔑 API KEY VAULT</legend>
+          <div class="setting-row">
+            <label for="key-provider" class="setting-label">PROVIDER</label>
+            <select id="key-provider" class="setting-select">
+              <option value="gemini">Google Gemini</option>
+              <option value="openai">OpenAI</option>
+            </select>
+          </div>
+          <div class="setting-row">
+            <label for="key-input" class="setting-label">API KEY</label>
+            <input type="password" id="key-input" class="setting-input" placeholder="Paste your API key here..." autocomplete="off" />
+          </div>
+          <button class="btn-primary" id="btn-save-key">SAVE KEY</button>
+          <span class="save-feedback" id="key-feedback"></span>
+        </fieldset>
+
+        <fieldset class="settings-group">
+          <legend class="settings-group-title">🎙 VOICE & TTS</legend>
+          <div class="setting-row">
+            <label for="voice-select" class="setting-label">VOICE</label>
+            <select id="voice-select" class="setting-select">
+              <option value="en-US-ChristopherNeural">Christopher (US Male)</option>
+              <option value="en-US-GuyNeural">Guy (US Male)</option>
+              <option value="en-GB-RyanNeural">Ryan (UK Male)</option>
+              <option value="en-US-AriaNeural">Aria (US Female)</option>
+              <option value="en-GB-SoniaNeural">Sonia (UK Female)</option>
+            </select>
+          </div>
+          <button class="btn-primary" id="btn-save-voice">APPLY VOICE</button>
+          <span class="save-feedback" id="voice-feedback"></span>
+        </fieldset>
+
+        <fieldset class="settings-group">
+          <legend class="settings-group-title">🌦 WEATHER</legend>
+          <div class="setting-row">
+            <label for="city-input" class="setting-label">CITY</label>
+            <input type="text" id="city-input" class="setting-input" placeholder="e.g. Colombo" />
+          </div>
+          <button class="btn-primary" id="btn-save-city">SAVE CITY</button>
+          <span class="save-feedback" id="city-feedback"></span>
+        </fieldset>
+
+        <fieldset class="settings-group">
+          <legend class="settings-group-title">🤖 LLM ENGINE</legend>
+          <div class="setting-row">
+            <label for="llm-model" class="setting-label">MODEL</label>
+            <select id="llm-model" class="setting-select">
+              <option value="gemini-1.5-flash">gemini-1.5-flash (fast)</option>
+              <option value="gemini-1.5-pro">gemini-1.5-pro (powerful)</option>
+              <option value="gemini-2.0-flash">gemini-2.0-flash (latest)</option>
+            </select>
+          </div>
+          <button class="btn-primary" id="btn-save-model">APPLY MODEL</button>
+          <span class="save-feedback" id="model-feedback"></span>
+        </fieldset>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- LLM stream overlay (bottom toast) -->
+  <div class="llm-stream-toast" id="llm-toast" style="display:none;" aria-live="polite"></div>
+
+  <script src="/static/js/main.js"></script>
+</body>
+</html>
