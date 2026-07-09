@@ -1,4 +1,4 @@
-﻿# Python
+# Python
 __pycache__/
 *.py[cod]
 *.pyo
@@ -34,3 +34,7 @@ Thumbs.db
 
 # TTS temp files
 *.mp3
+
+# Local blueprint
+memory.md
+

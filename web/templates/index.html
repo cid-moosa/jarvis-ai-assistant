@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -11,6 +11,18 @@
   <link rel="stylesheet" href="/static/css/style.css" />
 </head>
 <body>
+  <!-- Boot Loader Overlay -->
+  <div class="boot-overlay" id="boot-overlay">
+    <div class="boot-loader">
+      <div class="boot-logo">⬡ JARVIS</div>
+      <div class="boot-text" id="boot-text"></div>
+      <div class="boot-bar-container">
+        <div class="boot-bar" id="boot-bar"></div>
+      </div>
+      <div class="boot-status">SYSTEM INITIALIZATION V2.0</div>
+    </div>
+  </div>
+
   <!-- Background particle grid -->
   <div class="bg-grid" aria-hidden="true"></div>
   <div class="bg-vignette" aria-hidden="true"></div>
@@ -102,6 +114,7 @@
           <button class="btn-sm" id="btn-snapshot" aria-label="Trigger camera snapshot">SNAP</button>
         </div>
         <div class="snapshot-container" id="snapshot-container">
+          <div class="hud-scanner-line" id="scanner-line"></div>
           <div class="snapshot-placeholder" id="snapshot-placeholder">
             <span class="snapshot-icon">⬡</span>
             <span>No snapshot — say "take a snapshot"</span>
@@ -109,6 +122,52 @@
           <img id="snapshot-img" src="" alt="Latest camera snapshot" style="display:none;" />
         </div>
         <div class="snapshot-caption" id="snapshot-caption"></div>
+      </div>
+
+      <!-- System Monitor -->
+      <div class="sub-panel" id="system-monitor-panel">
+        <div class="panel-header">
+          <span class="panel-title">SYSTEM MONITOR</span>
+        </div>
+        <div class="stats-monitor-container">
+          <div class="monitor-item">
+            <div class="monitor-info">
+              <span class="monitor-label">CPU USAGE</span>
+              <span class="monitor-value" id="monitor-cpu-val">0%</span>
+            </div>
+            <div class="monitor-bar-bg">
+              <div class="monitor-bar-fill" id="monitor-cpu-bar" style="width: 0%"></div>
+            </div>
+          </div>
+          <div class="monitor-item">
+            <div class="monitor-info">
+              <span class="monitor-label">RAM LOAD</span>
+              <span class="monitor-value" id="monitor-ram-val">0%</span>
+            </div>
+            <div class="monitor-bar-bg">
+              <div class="monitor-bar-fill" id="monitor-ram-bar" style="width: 0%"></div>
+            </div>
+          </div>
+          <div class="monitor-item">
+            <div class="monitor-info">
+              <span class="monitor-label">DISK STORAGE</span>
+              <span class="monitor-value" id="monitor-disk-val">0%</span>
+            </div>
+            <div class="monitor-bar-bg">
+              <div class="monitor-bar-fill" id="monitor-disk-bar" style="width: 0%"></div>
+            </div>
+          </div>
+          <div class="monitor-net-grid">
+            <div class="net-item">
+              <span class="net-dir">NET IN</span>
+              <span class="net-speed" id="monitor-net-in">0.0 KB/s</span>
+            </div>
+            <div class="net-item">
+              <span class="net-dir">NET OUT</span>
+              <span class="net-speed" id="monitor-net-out">0.0 KB/s</span>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- System stats -->

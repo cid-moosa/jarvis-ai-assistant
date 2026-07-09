@@ -1,4 +1,4 @@
-﻿/**
+/**
  * JARVIS WebUI — main.js
  * WebSocket state machine + Canvas core animator + Console manager
  * Handles: WS connection/reconnect, state transitions, command submission,
@@ -90,6 +90,201 @@ const PALETTE = {
   speaking:   { ring: "#f59e0b", arc: "#b45309",  core: "#2a1500", glow: "rgba(245,158,11,0.40)" },
 };
 
+const _particles = [];
+const MAX_PARTICLES = 110;
+
+function initParticles() {
+  if (!canvas) return;
+  _particles.length = 0;
+  for (let i = 0; i < MAX_PARTICLES; i++) {
+    // Generate particles uniformly on a 3D sphere shell
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos((Math.random() * 2) - 1);
+    const radius = 60 + Math.random() * 40; // Shell thickness
+    
+    _particles.push({
+      x: Math.sin(phi) * Math.cos(theta) * radius,
+      y: Math.sin(phi) * Math.sin(theta) * radius,
+      z: Math.cos(phi) * radius,
+      vx: (Math.random() - 0.5) * 0.4,
+      vy: (Math.random() - 0.5) * 0.4,
+      vz: (Math.random() - 0.5) * 0.4,
+      r: Math.random() * 1.5 + 0.8,
+      alpha: Math.random() * 0.5 + 0.35,
+      phase: Math.random() * Math.PI * 2,
+      baseRadius: radius
+    });
+  }
+}
+
+function drawParticles(cx, cy, pal, t) {
+  if (_particles.length === 0) initParticles();
+
+  // 1. Calculate 3D rotations based on time to spin the whole sphere
+  const rotSpeedY = t * 0.15;
+  const rotSpeedX = Math.sin(t * 0.08) * 0.25;
+
+  const cosY = Math.cos(rotSpeedY), sinY = Math.sin(rotSpeedY);
+  const cosX = Math.cos(rotSpeedX), sinX = Math.sin(rotSpeedX);
+
+  const projected = [];
+
+  _particles.forEach((p, idx) => {
+    let px = p.x;
+    let py = p.y;
+    let pz = p.z;
+
+    // Update coordinates based on current state
+    if (_currentState === State.PROCESSING) {
+      // In PROCESSING, spiral the particles inward toward the core (radius -> 0)
+      const currentRadius = Math.sqrt(px * px + py * py + pz * pz);
+      if (currentRadius < 8) {
+        // Respawn at outer edge of sphere shell
+        const theta = Math.random() * Math.PI * 2;
+        const phi = Math.acos((Math.random() * 2) - 1);
+        const radius = 100 + Math.random() * 30;
+        p.x = Math.sin(phi) * Math.cos(theta) * radius;
+        p.y = Math.sin(phi) * Math.sin(theta) * radius;
+        p.z = Math.cos(phi) * radius;
+      } else {
+        // Drag inward and add rotation velocity
+        const dragFactor = 0.94;
+        p.x *= dragFactor;
+        p.y *= dragFactor;
+        p.z *= dragFactor;
+        // Small orbital swirl
+        const swirlSpeed = 0.05;
+        const tempX = p.x;
+        p.x = tempX * Math.cos(swirlSpeed) - p.y * Math.sin(swirlSpeed);
+        p.y = tempX * Math.sin(swirlSpeed) + p.y * Math.cos(swirlSpeed);
+      }
+    } else if (_currentState === State.SPEAKING) {
+      // In SPEAKING, animate like a disrupted, wiggling atom (orbiting shells wiggling violently)
+      const orbitIndex = idx % 3;
+      const orbitAngle = t * 7.5 + p.phase;
+      // Vibrating atomic radius
+      const baseR = p.baseRadius * (0.80 + Math.sin(t * 22) * 0.12);
+      
+      let tx = 0, ty = 0, tz = 0;
+      if (orbitIndex === 0) {
+        // Horizontal loop
+        tx = Math.cos(orbitAngle) * baseR;
+        ty = Math.sin(orbitAngle) * baseR * 0.25;
+        tz = Math.sin(orbitAngle) * baseR * 0.95;
+      } else if (orbitIndex === 1) {
+        // Vertical loop
+        tx = Math.sin(orbitAngle) * baseR * 0.25;
+        ty = Math.cos(orbitAngle) * baseR;
+        tz = Math.sin(orbitAngle) * baseR * 0.95;
+      } else {
+        // Tilted diagonal loop
+        tx = Math.cos(orbitAngle) * baseR * 0.65;
+        ty = Math.sin(orbitAngle) * baseR * 0.65;
+        tz = Math.cos(orbitAngle) * baseR * 0.65;
+      }
+
+      // Add high-frequency atomic wiggles / vibrations
+      const wiggleAmt = 15 + Math.sin(t * 35 + idx) * 9;
+      p.x = tx + (Math.random() - 0.5) * wiggleAmt;
+      p.y = ty + (Math.random() - 0.5) * wiggleAmt;
+      p.z = tz + (Math.random() - 0.5) * wiggleAmt;
+    } else if (_currentState === State.LISTENING) {
+      // In LISTENING, vibrate particles rapidly in and out based on the audio pulse
+      const baseR = p.baseRadius;
+      const pulseAmp = Math.sin(t * 28 + p.phase) * (4 + _pulse * 12);
+      const targetR = baseR + pulseAmp;
+      
+      const currentR = Math.sqrt(px * px + py * py + pz * pz) || 1;
+      const factor = targetR / currentR;
+      p.x *= factor;
+      p.y *= factor;
+      p.z *= factor;
+      
+      // Slow orbital drift
+      const drift = 0.004;
+      const tempX = p.x;
+      p.x = tempX * Math.cos(drift) - p.y * Math.sin(drift);
+      p.y = tempX * Math.sin(drift) + p.y * Math.cos(drift);
+    } else {
+      // IDLE: Slow breathing pulse + gentle 3D drift
+      const baseR = p.baseRadius;
+      const breathingAmp = Math.sin(t * 2.2 + p.phase) * 6;
+      const targetR = baseR + breathingAmp;
+      
+      const currentR = Math.sqrt(px * px + py * py + pz * pz) || 1;
+      const factor = targetR / currentR;
+      p.x *= factor;
+      p.y *= factor;
+      p.z *= factor;
+
+      // Slow orbital drift
+      const drift = 0.003;
+      const tempX = p.x;
+      p.x = tempX * Math.cos(drift) - p.y * Math.sin(drift);
+      p.y = tempX * Math.sin(drift) + p.y * Math.cos(drift);
+    }
+
+    // 2. Rotate around Y axis
+    let rx = px * cosY - pz * sinY;
+    let rz = px * sinY + pz * cosY;
+
+    // 3. Rotate around X axis
+    let ry = py * cosX - rz * sinX;
+    let rz2 = py * sinX + rz * cosX;
+
+    // 4. Perspective Projection mapping to 2D
+    const fov = 190;
+    const scale = fov / (fov + rz2);
+    const screenX = cx + rx * scale;
+    const screenY = cy + ry * scale;
+
+    projected.push({
+      x: screenX,
+      y: screenY,
+      z: rz2,
+      r: p.r * scale,
+      alpha: p.alpha * (scale * 0.8)
+    });
+  });
+
+  // 5. Draw Plexus Web Links
+  // Loop through pairs and draw lines between close points
+  ctx.save();
+  ctx.lineWidth = 0.6;
+  const linkDist = 45;
+  for (let i = 0; i < projected.length; i++) {
+    const p1 = projected[i];
+    for (let j = i + 1; j < projected.length; j++) {
+      const p2 = projected[j];
+      const dx = p1.x - p2.x;
+      const dy = p1.y - p2.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < linkDist) {
+        // Opacity drops linearly as distance increases
+        const opacity = (1.0 - (dist / linkDist)) * 0.18;
+        ctx.strokeStyle = pal.ring;
+        ctx.globalAlpha = opacity * p1.alpha;
+        ctx.beginPath();
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y);
+        ctx.stroke();
+      }
+    }
+  }
+  ctx.restore();
+
+  // 6. Draw Projected Particles
+  projected.forEach(p => {
+    ctx.save();
+    ctx.globalAlpha = p.alpha;
+    ctx.fillStyle = pal.ring;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  });
+}
+
 function stateKey() {
   return _currentState.toLowerCase() in PALETTE
     ? _currentState.toLowerCase()
@@ -110,130 +305,55 @@ function drawCore(ts) {
 
   ctx.clearRect(0, 0, W, H);
 
-  // Outer glow aura
-  const auraR = 150 + _pulse * 8;
-  const aura  = ctx.createRadialGradient(cx, cy, 60, cx, cy, auraR);
-  aura.addColorStop(0, pal.glow.replace("0.35","0.18").replace("0.40","0.20").replace("0.45","0.22").replace("0.40","0.18"));
+  // 1. Background Plexus Particles (3D shell/plexus)
+  drawParticles(cx, cy, pal, t);
+
+  // 2. Glowing outer aura
+  const auraR = 145 + _pulse * 6;
+  const aura  = ctx.createRadialGradient(cx, cy, 40, cx, cy, auraR);
+  aura.addColorStop(0, pal.glow.replace("0.35","0.12").replace("0.40","0.15").replace("0.45","0.18").replace("0.40","0.12"));
   aura.addColorStop(1, "transparent");
   ctx.fillStyle = aura;
   ctx.beginPath();
   ctx.arc(cx, cy, auraR, 0, Math.PI * 2);
   ctx.fill();
 
-  // Rings (static + spinning arcs)
-  const rings = _currentState === State.PROCESSING
-    ? [
-        { r: 130, lw: 1.5, alpha: 0.25, dash: [4,8],   spin: 1 },
-        { r: 110, lw: 2.5, alpha: 0.50, dash: [12,6],  spin: -1.4 },
-        { r:  90, lw: 1.5, alpha: 0.35, dash: [3,10],  spin: 1.8 },
-        { r:  70, lw: 3.0, alpha: 0.65, dash: [20,8],  spin: -0.9 },
-      ]
-    : _currentState === State.LISTENING
-    ? [
-        { r: 132 + _pulse * 10, lw: 2, alpha: 0.30 + _pulse * 0.3, dash: [],       spin: 0.3 },
-        { r: 108,               lw: 2, alpha: 0.55,                 dash: [8,6],    spin: -0.5 },
-        { r:  82,               lw: 3, alpha: 0.70 + _pulse * 0.3,  dash: [],       spin: 0.2 },
-      ]
-    : _currentState === State.SPEAKING
-    ? [
-        { r: 128 + Math.sin(t * 8) * 8, lw: 2,   alpha: 0.45, dash: [],      spin: 0.2 },
-        { r: 100 + Math.sin(t * 6) * 6, lw: 2.5, alpha: 0.55, dash: [6,4],   spin: -0.3 },
-        { r:  76 + Math.sin(t * 10) * 4,lw: 3,   alpha: 0.65, dash: [],      spin: 0.15 },
-      ]
-    : [
-        { r: 130, lw: 1,   alpha: 0.20, dash: [6,12], spin: 0.15 },
-        { r: 106, lw: 1.5, alpha: 0.30, dash: [],     spin: -0.1 },
-        { r:  80, lw: 2,   alpha: 0.45, dash: [],     spin: 0.08 },
-      ];
-
-  rings.forEach(ring => {
+  // 3. Rippling Core Glows (breathing pulse)
+  const rippleCount = 3;
+  for (let i = 0; i < rippleCount; i++) {
+    const scale = ((t * 0.4 + i / rippleCount) % 1.0);
+    const radius = 38 + scale * 45;
+    const opacity = (1.0 - scale) * 0.35;
     ctx.save();
-    ctx.translate(cx, cy);
-    ctx.rotate(_phi * ring.spin);
-    ctx.strokeStyle = pal.ring;
-    ctx.globalAlpha = ring.alpha;
-    ctx.lineWidth   = ring.lw;
-    if (ring.dash.length) ctx.setLineDash(ring.dash);
+    ctx.globalAlpha = opacity;
+    const ripGrad = ctx.createRadialGradient(cx, cy, 10, cx, cy, radius);
+    ripGrad.addColorStop(0, pal.ring);
+    ripGrad.addColorStop(1, "transparent");
+    ctx.fillStyle = ripGrad;
     ctx.beginPath();
-    ctx.arc(0, 0, ring.r, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.setLineDash([]);
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.fill();
     ctx.restore();
-  });
+  }
 
-  // Hex core background
-  ctx.save();
-  ctx.globalAlpha = 0.8;
-  const coreGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, 48);
-  coreGrad.addColorStop(0, pal.core);
-  coreGrad.addColorStop(1, "rgba(0,0,0,0.6)");
-  ctx.fillStyle = coreGrad;
-  _hexPath(ctx, cx, cy, 48, _phi * 0.5);
-  ctx.fill();
-  ctx.strokeStyle = pal.arc;
-  ctx.lineWidth = 1.5;
-  ctx.globalAlpha = 0.6;
-  ctx.stroke();
-  ctx.restore();
+  // 4. (Removed Beating Hex Core)
 
-  // Inner spinning arc accent
-  ctx.save();
-  ctx.translate(cx, cy);
-  ctx.rotate(-_phi * 2);
-  ctx.globalAlpha = 0.8;
-  ctx.strokeStyle = pal.arc;
-  ctx.lineWidth   = 3;
-  ctx.beginPath();
-  ctx.arc(0, 0, 55, 0, Math.PI * 1.2);
-  ctx.stroke();
-  ctx.restore();
-
-  // Center dot
-  const dotGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, 14);
+  // 5. Center pulsing dot
+  const dotGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, 10);
   dotGrad.addColorStop(0, "#ffffff");
-  dotGrad.addColorStop(0.4, pal.ring);
+  dotGrad.addColorStop(0.5, pal.ring);
   dotGrad.addColorStop(1, "transparent");
-  ctx.globalAlpha = 0.9;
+  ctx.globalAlpha = 0.95;
   ctx.fillStyle = dotGrad;
   ctx.beginPath();
-  ctx.arc(cx, cy, 14, 0, Math.PI * 2);
+  ctx.arc(cx, cy, 10, 0, Math.PI * 2);
   ctx.fill();
-  ctx.globalAlpha = 1;
-
-  // Waveform bars during SPEAKING
-  if (_currentState === State.SPEAKING) {
-    const bars = 16;
-    for (let i = 0; i < bars; i++) {
-      const angle  = (i / bars) * Math.PI * 2;
-      const barH   = 12 + Math.abs(Math.sin(t * 8 + i * 0.8)) * 22;
-      const x1 = cx + Math.cos(angle) * 60;
-      const y1 = cy + Math.sin(angle) * 60;
-      const x2 = cx + Math.cos(angle) * (60 + barH);
-      const y2 = cy + Math.sin(angle) * (60 + barH);
-      ctx.globalAlpha = 0.65;
-      ctx.strokeStyle = pal.ring;
-      ctx.lineWidth   = 2.5;
-      ctx.beginPath();
-      ctx.moveTo(x1, y1);
-      ctx.lineTo(x2, y2);
-      ctx.stroke();
-    }
-    ctx.globalAlpha = 1;
-  }
+  ctx.globalAlpha = 1.0;
 
   _animFrame = requestAnimationFrame(drawCore);
 }
 
-function _hexPath(ctx, cx, cy, r, rot) {
-  ctx.beginPath();
-  for (let i = 0; i < 6; i++) {
-    const a = rot + (i / 6) * Math.PI * 2;
-    const x = cx + Math.cos(a) * r;
-    const y = cy + Math.sin(a) * r;
-    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-  }
-  ctx.closePath();
-}
+
 
 if (ctx) _animFrame = requestAnimationFrame(drawCore);
 
@@ -246,6 +366,22 @@ let _llmEntry  = null;
 function ts() {
   const now = new Date();
   return `${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}:${String(now.getSeconds()).padStart(2,"0")}`;
+}
+
+function typeWriteText(element, text, speed = 15, onComplete = null) {
+  let idx = 0;
+  element.textContent = "";
+  function type() {
+    if (idx < text.length) {
+      element.textContent += text.charAt(idx);
+      idx++;
+      setTimeout(type, speed);
+      if (consoleOutput) consoleOutput.scrollTop = consoleOutput.scrollHeight;
+    } else {
+      if (onComplete) onComplete();
+    }
+  }
+  type();
 }
 
 function appendLog(type, text, badge = "") {
@@ -265,11 +401,17 @@ function appendLog(type, text, badge = "") {
     b.textContent = badge.replace("mode-","").toUpperCase();
     textEl.appendChild(b);
   }
-  textEl.appendChild(document.createTextNode(text));
 
   entry.appendChild(tsEl);
   entry.appendChild(textEl);
   consoleOutput.appendChild(entry);
+
+  if (type === "assistant" && text) {
+    typeWriteText(textEl, text);
+  } else {
+    textEl.appendChild(document.createTextNode(text));
+  }
+
   consoleOutput.scrollTop = consoleOutput.scrollHeight;
   return entry;
 }
@@ -337,6 +479,48 @@ function connectWS() {
   };
 }
 
+function updateSystemStats(data) {
+  const cpuVal = document.getElementById("monitor-cpu-val");
+  const cpuBar = document.getElementById("monitor-cpu-bar");
+  const ramVal = document.getElementById("monitor-ram-val");
+  const ramBar = document.getElementById("monitor-ram-bar");
+  const diskVal = document.getElementById("monitor-disk-val");
+  const diskBar = document.getElementById("monitor-disk-bar");
+  const netIn = document.getElementById("monitor-net-in");
+  const netOut = document.getElementById("monitor-net-out");
+
+  if (cpuVal && cpuBar) {
+    cpuVal.textContent = `${Math.round(data.cpu)}%`;
+    cpuBar.style.width = `${data.cpu}%`;
+    _setMeterColor(cpuBar, data.cpu);
+  }
+  if (ramVal && ramBar) {
+    ramVal.textContent = `${Math.round(data.ram)}%`;
+    ramBar.style.width = `${data.ram}%`;
+    _setMeterColor(ramBar, data.ram);
+  }
+  if (diskVal && diskBar) {
+    diskVal.textContent = `${Math.round(data.disk)}%`;
+    diskBar.style.width = `${data.disk}%`;
+    _setMeterColor(diskBar, data.disk);
+  }
+  if (netIn) netIn.textContent = `${data.net_in.toFixed(1)} KB/s`;
+  if (netOut) netOut.textContent = `${data.net_out.toFixed(1)} KB/s`;
+}
+
+function _setMeterColor(bar, val) {
+  if (val > 85) {
+    bar.style.background = "linear-gradient(90deg, #ef4444, #f87171)";
+    bar.style.boxShadow = "0 0 8px rgba(239,68,68,0.6)";
+  } else if (val > 65) {
+    bar.style.background = "linear-gradient(90deg, #f59e0b, #fbbf24)";
+    bar.style.boxShadow = "0 0 8px rgba(245,158,11,0.5)";
+  } else {
+    bar.style.background = "linear-gradient(90deg, #0077aa, #00c8ff)";
+    bar.style.boxShadow = "0 0 8px rgba(0,200,255,0.5)";
+  }
+}
+
 function handleServerEvent(data) {
   // State transition
   if (data.state) {
@@ -353,6 +537,10 @@ function handleServerEvent(data) {
 
   // Events
   switch (data.event) {
+    case "sys_stats":
+      updateSystemStats(data);
+      break;
+
     case "user_input":
       appendLog("user", data.text, data.mode === "VOICE" ? "mode-voice" : "mode-text");
       _commandCount++;
@@ -589,6 +777,61 @@ async function checkSnapshot() {
 checkSnapshot();
 
 // ── Boot ─────────────────────────────────────────────────────────────────────
+
+// Boot Loader sequence
+window.addEventListener("DOMContentLoaded", () => {
+  const overlay = document.getElementById("boot-overlay");
+  const bar = document.getElementById("boot-bar");
+  const txt = document.getElementById("boot-text");
+  if (!overlay || !bar || !txt) return;
+
+  const logs = [
+    "INIT SYSTEM CORE DIAGNOSTICS...",
+    "ESTABLISHING SECURE MEMORY VAULT...",
+    "LOADING DYNAMIC INTENT DICTIONARIES...",
+    "CALIBRATING PYAUDIO CLAP SENSITIVITY...",
+    "REGISTERING SAPI5 / EDGE-TTS DUAL VOICES...",
+    "SYNCING WEBSOCKET BROADCAST PORTS...",
+    "SYSTEM STATUS: ONLINE. INTERFACES SECURED."
+  ];
+
+  let progress = 0;
+
+  function bootTick() {
+    progress += Math.floor(Math.random() * 12) + 6;
+    if (progress >= 100) progress = 100;
+    bar.style.width = `${progress}%`;
+
+    const idx = Math.floor((progress / 100) * (logs.length - 1));
+    txt.textContent = logs[idx];
+
+    if (progress < 100) {
+      setTimeout(bootTick, 100 + Math.random() * 150);
+    } else {
+      setTimeout(() => {
+        overlay.classList.add("hidden");
+        // Fade in panels sequentially
+        const panels = document.querySelectorAll(".panel, .topbar");
+        panels.forEach((p, idx) => {
+          setTimeout(() => {
+            p.style.opacity = 1;
+            p.style.transform = "translateY(0)";
+          }, idx * 120);
+        });
+      }, 600);
+    }
+  }
+
+  // Pre-boot setup: prepare fade-in styles on panels
+  const panels = document.querySelectorAll(".panel, .topbar");
+  panels.forEach(p => {
+    p.style.opacity = 0;
+    p.style.transform = "translateY(15px)";
+    p.style.transition = "opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1), transform 0.8s cubic-bezier(0.16, 1, 0.3, 1)";
+  });
+
+  setTimeout(bootTick, 400);
+});
 
 appendSystem("Jarvis Web Interface v2.0 — Hybrid AI Mode");
 appendSystem("Use double-clap for voice commands, or type below.");

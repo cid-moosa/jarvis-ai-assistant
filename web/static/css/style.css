@@ -1,4 +1,4 @@
-﻿/* ============================================================
+/* ============================================================
    JARVIS WebUI — Dark Sci-Fi Glassmorphism Theme
    Orbitron (display) + Inter (body) + JetBrains Mono (console)
    ============================================================ */
@@ -64,7 +64,14 @@ body {
   background-size: 40px 40px;
   pointer-events: none;
   z-index: 0;
+  animation: gridPulse 8s infinite ease-in-out;
 }
+
+@keyframes gridPulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1.0; }
+}
+
 
 .bg-vignette {
   position: fixed;
@@ -225,6 +232,7 @@ body {
 #core-canvas { position: absolute; inset: 0; }
 
 .core-center-text {
+  display: none;
   position: relative;
   font-family: var(--font-display);
   font-size: 0.75rem;
@@ -645,6 +653,201 @@ body {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(0,200,255,0.2); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--clr-cyan-dim); }
+
+/* ── Panel Hover Micro-interactions & Corners ───────────────── */
+.panel {
+  transition: border-color 0.3s, box-shadow 0.3s, transform 0.3s;
+  position: relative;
+}
+.panel:hover {
+  border-color: var(--clr-cyan-dim);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.7), 0 0 15px rgba(0,200,255,0.25);
+  transform: translateY(-2px);
+}
+.panel::before, .panel::after {
+  content: "";
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid transparent;
+  pointer-events: none;
+  transition: all 0.3s ease;
+}
+.panel::before {
+  top: 8px; left: 8px;
+}
+.panel::after {
+  bottom: 8px; right: 8px;
+}
+.panel:hover::before {
+  border-top-color: var(--clr-cyan);
+  border-left-color: var(--clr-cyan);
+  transform: translate(-3px, -3px);
+}
+.panel:hover::after {
+  border-bottom-color: var(--clr-cyan);
+  border-right-color: var(--clr-cyan);
+  transform: translate(3px, 3px);
+}
+
+/* ── Boot Loader Overlay ── */
+.boot-overlay {
+  position: fixed;
+  inset: 0;
+  background: #02050e;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.8s ease-out, visibility 0.8s;
+}
+.boot-overlay.hidden {
+  opacity: 0;
+  visibility: hidden;
+}
+.boot-loader {
+  width: 360px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+.boot-logo {
+  font-family: var(--font-display);
+  font-size: 2.2rem;
+  font-weight: 900;
+  color: var(--clr-cyan);
+  letter-spacing: 0.2em;
+  text-shadow: var(--shadow-glow-cyan);
+  animation: bootLogoPulse 1.5s infinite ease-in-out;
+}
+@keyframes bootLogoPulse {
+  0%, 100% { transform: scale(1); text-shadow: var(--shadow-glow-cyan); }
+  50% { transform: scale(1.05); text-shadow: 0 0 35px rgba(0,200,255,0.7); }
+}
+.boot-text {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--clr-text-dim);
+  height: 20px;
+  text-align: center;
+  word-break: break-all;
+}
+.boot-bar-container {
+  width: 100%;
+  height: 4px;
+  background: rgba(0,200,255,0.1);
+  border-radius: 2px;
+  overflow: hidden;
+  border: 1px solid rgba(0,200,255,0.15);
+}
+.boot-bar {
+  width: 0%;
+  height: 100%;
+  background: linear-gradient(90deg, var(--clr-cyan), var(--clr-accent));
+  box-shadow: 0 0 10px var(--clr-cyan);
+  transition: width 0.1s ease;
+}
+.boot-status {
+  font-family: var(--font-display);
+  font-size: 0.55rem;
+  letter-spacing: 0.24em;
+  color: var(--clr-text-muted);
+}
+
+/* ── Vision Sweeping Scanner Line ── */
+.hud-scanner-line {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  height: 3px;
+  background: linear-gradient(180deg, rgba(0,200,255,0.8) 0%, rgba(0,200,255,0) 100%);
+  box-shadow: 0 0 8px rgba(0,200,255,0.6);
+  z-index: 5;
+  pointer-events: none;
+  animation: scanSweep 3.5s infinite linear;
+}
+@keyframes scanSweep {
+  0% { top: 0%; }
+  50% { top: 100%; }
+  100% { top: 0%; }
+}
+
+/* ── System Stats Monitor Widgets ── */
+.stats-monitor-container {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.monitor-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.monitor-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-family: var(--font-mono);
+}
+.monitor-label {
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  color: var(--clr-text-dim);
+}
+.monitor-value {
+  font-size: 0.72rem;
+  color: var(--clr-cyan);
+  font-weight: 600;
+  text-shadow: 0 0 6px rgba(0,200,255,0.4);
+}
+.monitor-bar-bg {
+  width: 100%;
+  height: 6px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(0,200,255,0.1);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.monitor-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--clr-cyan-deep), var(--clr-cyan));
+  box-shadow: 0 0 6px rgba(0,200,255,0.5);
+  border-radius: 3px;
+  transition: width 0.5s ease-out;
+}
+.monitor-net-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 4px;
+  border-top: 1px dashed rgba(0,200,255,0.15);
+  padding-top: 12px;
+}
+.net-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+  background: rgba(0,0,0,0.25);
+  padding: 8px;
+  border: 1px solid rgba(0,200,255,0.08);
+  border-radius: var(--radius-sm);
+}
+.net-dir {
+  font-family: var(--font-display);
+  font-size: 0.5rem;
+  letter-spacing: 0.08em;
+  color: var(--clr-text-dim);
+}
+.net-speed {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--clr-green);
+  text-shadow: 0 0 6px rgba(0,255,157,0.3);
+}
 
 /* ── Responsive fallback ─────────────────────────────────────── */
 @media (max-width: 1100px) {

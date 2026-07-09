@@ -209,6 +209,81 @@ def _enqueue_command(command: str, mode: str):
         pass
 
 
+def _stats_daemon():
+    """Periodically fetches CPU, RAM, disk, and network stats, and broadcasts to WebUI."""
+    import psutil
+    import time
+    
+    # Initialize CPU measurement
+    try:
+        psutil.cpu_percent(interval=None)
+    except Exception:
+        pass
+        
+    last_net = None
+    try:
+        last_net = psutil.net_io_counters()
+    except Exception:
+        pass
+        
+    last_time = time.time()
+    
+    while True:
+        time.sleep(1.0)
+        try:
+            # CPU
+            try:
+                cpu = psutil.cpu_percent(interval=None)
+            except Exception:
+                cpu = 0.0
+            
+            # RAM
+            try:
+                vm = psutil.virtual_memory()
+                ram = vm.percent
+            except Exception:
+                ram = 0.0
+            
+            # Disk
+            try:
+                disk = psutil.disk_usage("/").percent
+            except Exception:
+                try:
+                    # Fallback for Windows drives
+                    disk = psutil.disk_usage(os.getcwd()[:3]).percent
+                except Exception:
+                    disk = 0.0
+                    
+            # Network speeds
+            net_in = 0.0
+            net_out = 0.0
+            try:
+                now_net = psutil.net_io_counters()
+                now_time = time.time()
+                if last_net is not None:
+                    dt = max(now_time - last_time, 0.1)
+                    bytes_sent = now_net.bytes_sent - last_net.bytes_sent
+                    bytes_recv = now_net.bytes_recv - last_net.bytes_recv
+                    net_out = round((bytes_sent / 1024) / dt, 1)
+                    net_in = round((bytes_recv / 1024) / dt, 1)
+                last_net = now_net
+                last_time = now_time
+            except Exception:
+                pass
+            
+            # Broadcast to all clients
+            broadcast({
+                "event": "sys_stats",
+                "cpu": cpu,
+                "ram": ram,
+                "disk": disk,
+                "net_in": net_in,
+                "net_out": net_out
+            })
+        except Exception:
+            pass
+
+
 # ── Server daemon startup ──────────────────────────────────────────────────────
 
 def start(config: dict):
@@ -225,6 +300,10 @@ def start(config: dict):
 
     t = threading.Thread(target=_run, daemon=True, name="WebServer")
     t.start()
+
+    # Start stats daemon
+    ts = threading.Thread(target=_stats_daemon, daemon=True, name="StatsDaemon")
+    ts.start()
 
     # Give the server a moment to bind to the port
     time.sleep(1.2)
