@@ -833,7 +833,196 @@ window.addEventListener("DOMContentLoaded", () => {
   setTimeout(bootTick, 400);
 });
 
+// ── Prompt Enhancer Integration ──────────────────────────────────────────────
+let useLlm = true;
+let detailLevel = 'detailed';
+let archetype = 'general';
+
+function setEnhanceMethod(llm) {
+  useLlm = llm;
+  document.getElementById('method-llm').classList.toggle('active', llm);
+  document.getElementById('method-local').classList.toggle('active', !llm);
+  document.getElementById('api-key-row').style.display = llm ? 'flex' : 'none';
+}
+
+window.setEnhanceMethod = setEnhanceMethod;
+
+function setEnhanceDetail(level) {
+  detailLevel = level;
+  document.getElementById('detail-detailed').classList.toggle('active', level === 'detailed');
+  document.getElementById('detail-concise').classList.toggle('active', level === 'concise');
+}
+
+window.setEnhanceDetail = setEnhanceDetail;
+
+function setEnhanceArchetype(arch) {
+  archetype = arch;
+  document.getElementById('arch-general').classList.toggle('active', arch === 'general');
+  document.getElementById('arch-developer').classList.toggle('active', arch === 'developer_agent');
+  document.getElementById('arch-tui').classList.toggle('active', arch === 'tui_assistant');
+}
+
+window.setEnhanceArchetype = setEnhanceArchetype;
+
+function updateEnhanceStats(text) {
+  const statTokens = document.getElementById('stat-tokens-val');
+  const statCost = document.getElementById('stat-cost-val');
+  if (!statTokens || !statCost) return;
+  if (!text) {
+    statTokens.textContent = '0';
+    statCost.textContent = '$0.0000';
+    return;
+  }
+  const tokenEstimate = Math.ceil(text.length / 4);
+  statTokens.textContent = tokenEstimate.toLocaleString();
+  const cost = (tokenEstimate * 15.00) / 1000000;
+  statCost.textContent = '$' + cost.toFixed(4);
+}
+
+// Live character/token estimation for output prompt
+document.addEventListener('DOMContentLoaded', () => {
+  const rawPrompt = document.getElementById('raw-prompt');
+  if (rawPrompt) {
+    rawPrompt.addEventListener('input', () => {
+      // Input event listener
+    });
+  }
+  
+  // Setup tab switcher
+  const tabConsole = document.getElementById('tab-console');
+  const tabEnhancer = document.getElementById('tab-enhancer');
+  const viewConsole = document.getElementById('view-console');
+  const viewEnhancer = document.getElementById('view-enhancer');
+  const consoleControls = document.getElementById('console-controls-actions');
+  
+  if (tabConsole && tabEnhancer && viewConsole && viewEnhancer) {
+    tabConsole.addEventListener('click', () => {
+      tabConsole.classList.add('active');
+      tabEnhancer.classList.remove('active');
+      viewConsole.style.display = 'flex';
+      viewEnhancer.style.display = 'none';
+      if (consoleControls) consoleControls.style.display = 'flex';
+    });
+    tabEnhancer.addEventListener('click', () => {
+      tabEnhancer.classList.add('active');
+      tabConsole.classList.remove('active');
+      viewConsole.style.display = 'none';
+      viewEnhancer.style.display = 'flex';
+      if (consoleControls) consoleControls.style.display = 'none';
+    });
+  }
+});
+
+async function enhancePromptWeb() {
+  const rawPrompt = document.getElementById('raw-prompt');
+  if (!rawPrompt || !rawPrompt.value.trim()) {
+    alert('Please enter a raw prompt first.');
+    return;
+  }
+  
+  const btnEnhance = document.getElementById('btn-enhance-action');
+  const btnText = document.getElementById('btn-enhance-text');
+  const spinner = document.getElementById('enhancer-spinner');
+  const outputArea = document.getElementById('enhanced-prompt');
+  const copyBtn = document.getElementById('btn-copy-template');
+  
+  if (!btnEnhance || !btnText || !spinner || !outputArea) return;
+  
+  // Set loading
+  btnEnhance.disabled = true;
+  btnText.textContent = 'ENHANCING...';
+  spinner.style.display = 'block';
+  
+  // Rules checklist
+  const includeRules = [];
+  if (document.getElementById('rule-complexity').checked) includeRules.push('minimal_complexity');
+  if (document.getElementById('rule-efficiency').checked) includeRules.push('output_efficiency');
+  if (document.getElementById('rule-radius').checked) includeRules.push('blast_radius');
+  if (document.getElementById('rule-verification').checked) includeRules.push('strict_verification');
+  
+  // Tools checklist
+  let toolsList = [];
+  if (document.getElementById('tool-read').checked) toolsList.push('read_file');
+  if (document.getElementById('tool-write').checked) toolsList.push('write_file');
+  if (document.getElementById('tool-edit').checked) toolsList.push('edit_file');
+  if (document.getElementById('tool-grep').checked) toolsList.push('grep_search');
+  if (document.getElementById('tool-glob').checked) toolsList.push('glob_files');
+  if (document.getElementById('tool-bash').checked) toolsList.push('execute_bash');
+  
+  const customToolsText = document.getElementById('custom-tools').value.trim();
+  if (customToolsText) {
+    const customs = customToolsText.split(',').map(t => t.trim()).filter(t => t.length > 0);
+    toolsList = [...toolsList, ...customs];
+  }
+  
+  const apiKeyOverride = document.getElementById('api-key-override').value.trim();
+  const toneVal = document.getElementById('tone').value.trim();
+  
+  try {
+    const response = await fetch('/api/enhance', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        prompt: rawPrompt.value.trim(),
+        detail_level: detailLevel,
+        tone: toneVal,
+        use_llm: useLlm,
+        api_key: apiKeyOverride || null,
+        archetype: archetype,
+        include_rules: includeRules,
+        tools_list: toolsList
+      })
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Server status: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    outputArea.value = data.enhanced;
+    if (copyBtn) copyBtn.disabled = false;
+    updateEnhanceStats(data.enhanced);
+  } catch (error) {
+    console.error(error);
+    alert(`Enhancement failed: ${error.message}`);
+  } finally {
+    btnEnhance.disabled = false;
+    btnText.textContent = 'ENHANCE PROMPT';
+    spinner.style.display = 'none';
+  }
+}
+
+window.enhancePromptWeb = enhancePromptWeb;
+
+function copyEnhancedPromptWeb() {
+  const outputArea = document.getElementById('enhanced-prompt');
+  if (!outputArea || !outputArea.value) return;
+  
+  navigator.clipboard.writeText(outputArea.value)
+    .then(() => {
+      // Trigger visual cue on copy button
+      const copyBtn = document.getElementById('btn-copy-template');
+      const originalText = copyBtn.textContent;
+      copyBtn.textContent = 'COPIED!';
+      copyBtn.style.borderColor = 'var(--clr-green)';
+      copyBtn.style.color = 'var(--clr-green)';
+      setTimeout(() => {
+        copyBtn.textContent = originalText;
+        copyBtn.style.borderColor = '';
+        copyBtn.style.color = '';
+      }, 2000);
+    })
+    .catch(err => {
+      console.error('Failed to copy text: ', err);
+    });
+}
+
+window.copyEnhancedPromptWeb = copyEnhancedPromptWeb;
+
 appendSystem("Jarvis Web Interface v2.0 — Hybrid AI Mode");
 appendSystem("Use double-clap for voice commands, or type below.");
 appendSystem("Open ⚙ Settings to configure your Gemini API key.");
 connectWS();
+

@@ -18,3 +18,4 @@ flask
 flask-sock
 opencv-python
 google-generativeai
+anthropic>=0.18.0

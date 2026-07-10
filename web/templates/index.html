@@ -75,32 +75,145 @@
       </div>
     </section>
 
-    <!-- Center column: Command console -->
+    <!-- Center column: Command console & Prompt Enhancer -->
     <section class="panel panel-console" aria-label="Command console">
       <div class="panel-header">
-        <span class="panel-title">COMMAND CONSOLE</span>
-        <div class="console-controls">
+        <div class="console-tabs" style="display: flex; gap: 16px;">
+          <button class="tab-btn active" id="tab-console" aria-label="Show command console">COMMAND CONSOLE</button>
+          <button class="tab-btn" id="tab-enhancer" aria-label="Show prompt enhancer">PROMPT ENHANCER</button>
+        </div>
+        <div class="console-controls" id="console-controls-actions">
           <button class="btn-sm" id="btn-clear" aria-label="Clear console">CLEAR</button>
           <button class="btn-sm" id="btn-export" aria-label="Export log">EXPORT</button>
         </div>
       </div>
 
-      <div class="console-output" id="console-output" role="log" aria-live="polite" aria-label="Session log"></div>
+      <!-- View 1: Console View -->
+      <div id="view-console" class="tab-view active">
+        <div class="console-output" id="console-output" role="log" aria-live="polite" aria-label="Session log"></div>
 
-      <!-- Input area -->
-      <div class="console-input-bar" role="search">
-        <span class="input-prompt">❯</span>
-        <input
-          type="text"
-          id="command-input"
-          class="command-input"
-          placeholder="Type a command or ask anything..."
-          autocomplete="off"
-          aria-label="Type your command here"
-          spellcheck="false"
-        />
-        <button class="btn-send" id="btn-send" aria-label="Send command">SEND</button>
-        <button class="btn-mic" id="btn-mic" aria-label="Voice input indicator" title="Use double-clap for voice">🎤</button>
+        <!-- Input area -->
+        <div class="console-input-bar" role="search">
+          <span class="input-prompt">❯</span>
+          <input
+            type="text"
+            id="command-input"
+            class="command-input"
+            placeholder="Type a command or ask anything..."
+            autocomplete="off"
+            aria-label="Type your command here"
+            spellcheck="false"
+          />
+          <button class="btn-send" id="btn-send" aria-label="Send command">SEND</button>
+          <button class="btn-mic" id="btn-mic" aria-label="Voice input indicator" title="Use double-clap for voice">🎤</button>
+        </div>
+      </div>
+
+      <!-- View 2: Prompt Enhancer View -->
+      <div id="view-enhancer" class="tab-view" style="display: none;">
+        <div class="enhancer-grid">
+          <div class="enhancer-pane pane-left">
+            <div class="field-group">
+              <label class="field-label">RAW PROMPT</label>
+              <textarea id="raw-prompt" class="enhancer-textarea" placeholder="Enter your raw prompt here... (e.g. 'write a python script to parse logs')"></textarea>
+            </div>
+            
+            <div class="enhancer-card">
+              <div class="control-row">
+                <span class="control-label">METHOD</span>
+                <div class="toggle-group">
+                  <button class="btn-toggle active" id="method-llm" onclick="setEnhanceMethod(true)">LLM CLAUDE</button>
+                  <button class="btn-toggle" id="method-local" onclick="setEnhanceMethod(false)">HEURISTICS</button>
+                </div>
+              </div>
+              
+              <div class="control-row" id="api-key-row">
+                <span class="control-label">API KEY OVERRIDE</span>
+                <input type="password" id="api-key-override" class="enhancer-input" placeholder="sk-ant-... (optional)">
+              </div>
+
+              <div class="control-row">
+                <span class="control-label">ARCHETYPE</span>
+                <div class="toggle-group">
+                  <button class="btn-toggle active" id="arch-general" onclick="setEnhanceArchetype('general')">GENERAL</button>
+                  <button class="btn-toggle" id="arch-developer" onclick="setEnhanceArchetype('developer_agent')">DEV AGENT</button>
+                  <button class="btn-toggle" id="arch-tui" onclick="setEnhanceArchetype('tui_assistant')">TUI CLI</button>
+                </div>
+              </div>
+
+              <div class="control-row">
+                <span class="control-label">CONSTRAINTS</span>
+                <div class="checkbox-grid">
+                  <label class="check-container">
+                    <input type="checkbox" id="rule-complexity" checked> MIN COMPLEXITY
+                  </label>
+                  <label class="check-container">
+                    <input type="checkbox" id="rule-efficiency" checked> EFFICIENCY
+                  </label>
+                  <label class="check-container">
+                    <input type="checkbox" id="rule-radius" checked> BLAST RADIUS
+                  </label>
+                  <label class="check-container">
+                    <input type="checkbox" id="rule-verification" checked> VERIFICATION
+                  </label>
+                </div>
+              </div>
+
+              <div class="control-row">
+                <span class="control-label">TOOL INTEGRATION</span>
+                <div class="checkbox-grid tool-grid">
+                  <label class="check-container"><input type="checkbox" id="tool-read" checked> read_file</label>
+                  <label class="check-container"><input type="checkbox" id="tool-write" checked> write_file</label>
+                  <label class="check-container"><input type="checkbox" id="tool-edit" checked> edit_file</label>
+                  <label class="check-container"><input type="checkbox" id="tool-grep" checked> grep_search</label>
+                  <label class="check-container"><input type="checkbox" id="tool-glob" checked> glob_files</label>
+                  <label class="check-container"><input type="checkbox" id="tool-bash"> execute_bash</label>
+                </div>
+                <input type="text" id="custom-tools" class="enhancer-input" style="margin-top: 8px;" placeholder="Custom tools (comma separated, e.g. run_db_query)">
+              </div>
+
+              <div class="control-row-split">
+                <div class="control-row" style="flex: 1;">
+                  <span class="control-label">DETAIL</span>
+                  <div class="toggle-group">
+                    <button class="btn-toggle active" id="detail-detailed" onclick="setEnhanceDetail('detailed')">DETAILED</button>
+                    <button class="btn-toggle" id="detail-concise" onclick="setEnhanceDetail('concise')">CONCISE</button>
+                  </div>
+                </div>
+                <div class="control-row" style="flex: 1;">
+                  <span class="control-label">TONE</span>
+                  <input type="text" id="tone" class="enhancer-input" value="professional">
+                </div>
+              </div>
+
+              <button class="btn-primary-enhance" id="btn-enhance-action" onclick="enhancePromptWeb()">
+                <div class="enhancer-spinner" id="enhancer-spinner" style="display:none;"></div>
+                <span id="btn-enhance-text">ENHANCE PROMPT</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="enhancer-pane pane-right">
+            <div class="field-group" style="height: 100%; display: flex; flex-direction: column;">
+              <div class="field-header">
+                <label class="field-label">OPTIMIZED TEMPLATE</label>
+                <button class="btn-copy" id="btn-copy-template" onclick="copyEnhancedPromptWeb()" disabled>COPY</button>
+              </div>
+              <textarea id="enhanced-prompt" class="enhancer-textarea output" readonly placeholder="Enhanced output will appear here..."></textarea>
+            </div>
+            
+            <div class="stats-card">
+              <div class="stat-box">
+                <span class="stat-label">ESTIMATED TOKENS</span>
+                <span class="stat-val" id="stat-tokens-val">0</span>
+              </div>
+              <div class="stat-box">
+                <span class="stat-label">SONNET COST</span>
+                <span class="stat-val text-green" id="stat-cost-val">$0.0000</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -214,6 +327,7 @@
             <select id="key-provider" class="setting-select">
               <option value="gemini">Google Gemini</option>
               <option value="openai">OpenAI</option>
+              <option value="anthropic">Anthropic Claude</option>
             </select>
           </div>
           <div class="setting-row">

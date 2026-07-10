@@ -14,8 +14,12 @@ import os
 import queue
 import threading
 import time
+import asyncio
 from flask import Flask, render_template, request, jsonify, send_from_directory
 from flask_sock import Sock
+from pydantic import BaseModel, Field, ValidationError
+from typing import Optional, List
+from core.enhancer import PromptEnhancer
 
 # ── App setup ─────────────────────────────────────────────────────────────────
 
@@ -282,6 +286,51 @@ def _stats_daemon():
             })
         except Exception:
             pass
+class EnhanceRequest(BaseModel):
+    prompt: str = Field(..., min_length=1)
+    detail_level: str = Field("detailed", pattern="^(detailed|concise)$")
+    tone: str = Field("professional")
+    use_llm: bool = Field(True)
+    api_key: Optional[str] = Field(None)
+    archetype: str = Field("general", pattern="^(general|developer_agent|tui_assistant)$")
+    include_rules: Optional[List[str]] = Field(default=None)
+    tools_list: Optional[List[str]] = Field(default=None)
+
+# Initialize PromptEnhancer
+enhancer = PromptEnhancer()
+
+@app.route("/api/enhance", methods=["POST"])
+def api_enhance():
+    """Accept raw prompt and options, returning optimized prompt."""
+    data = request.get_json(silent=True) or {}
+    try:
+        req = EnhanceRequest(**data)
+    except ValidationError as err:
+        return jsonify({"error": err.errors()}), 422
+
+    # Instantiate or load key
+    if req.api_key:
+        active_enhancer = PromptEnhancer(api_key=req.api_key)
+    else:
+        active_enhancer = PromptEnhancer()
+
+    # Run the coroutine synchronously in an event loop
+    loop = asyncio.new_event_loop()
+    try:
+        asyncio.set_event_loop(loop)
+        result = loop.run_until_complete(active_enhancer.enhance(
+            prompt=req.prompt,
+            detail_level=req.detail_level,
+            tone=req.tone,
+            use_llm=req.use_llm,
+            archetype=req.archetype,
+            include_rules=req.include_rules,
+            tools_list=req.tools_list
+        ))
+    finally:
+        loop.close()
+
+    return jsonify(result)
 
 
 # ── Server daemon startup ──────────────────────────────────────────────────────
